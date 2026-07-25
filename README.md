@@ -65,11 +65,18 @@ on, at the moment you invoke it, and they are each one line away from being lost
 
 Merging to `main` derives a version from the merged commits — `feat:` gives a minor
 bump, `fix:` or `perf:` a patch, `!` or `BREAKING CHANGE` a major, and anything else
-releases nothing. The workflow writes that version into `manifest.json` and
-`package.json`, tags it, and publishes the packaged zip as a GitHub Release.
+releases nothing. The workflow writes that version into the working tree so it reaches
+the built artifact, tags the commit, and publishes the packaged zip as a GitHub Release.
 
-`manifest.json` is the source of truth for the version, since it is the number
-Chrome shows users.
+**Git tags are the source of truth for the released version.** The version committed in
+`manifest.json` is only a development placeholder and will lag behind the latest tag.
+That is deliberate: `main` requires every change to arrive through a pull request with
+verified signatures, so the release job cannot push a version-bump commit back — it
+tags instead. To find what actually shipped, read `git tag` or the Releases page.
+
+Because the squashed commit's message is what drives the version, a squash merge whose
+subject is not conventional-commit format (GitHub defaults it to the PR title) will
+release nothing. Give the squash commit a `feat:` or `fix:` subject.
 
 Releases are built and tested automatically, but **no automated browser test exists
 for this extension** — layout, painting, text selection, clipboard behaviour and DRM
