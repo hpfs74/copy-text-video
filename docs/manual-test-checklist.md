@@ -11,7 +11,9 @@ extension first.
       if the fullscreen attachment point regresses).
 - [ ] **YouTube, theatre mode** — overlay covers the resized player correctly.
 - [ ] **Embedded player in an iframe** — any site embedding a YouTube or Vimeo
-      video. The overlay appears over the embed, not the host page.
+      video. The overlay appears over the embed, not the host page, **and no
+      "No video found on this page" toast appears anywhere**: injection is
+      allFrames, so the host frame runs the same code with nothing to capture.
 - [ ] **Plain `<video>`** — any direct .mp4 link.
 - [ ] **Canvas-based player** — a Twitch clip or similar.
 
@@ -53,6 +55,9 @@ extension first.
 - [ ] **Netflix or another DRM service** — "This player blocks frame capture",
       no empty overlay, playback resumes.
 - [ ] **A page with no video** — "No video found on this page".
+- [ ] **A video that has not loaded yet** — reload a video page and press the
+      shortcut before the first frame paints: "The video has not loaded a frame
+      yet", not "No video found on this page".
 - [ ] **A frame with no text** (a blank scene) — overlay stays up showing the
       frame with "No text found in this frame".
 - [ ] **A restricted page** (`chrome://extensions`) — nothing happens, no crash
@@ -63,5 +68,25 @@ extension first.
 - [ ] Esc after the extension paused the video — playback resumes.
 - [ ] Esc after you paused the video yourself — stays paused.
 - [ ] Press the shortcut twice quickly — one overlay, not two.
+- [ ] **Press the shortcut again after the text has appeared** — the old overlay
+      is replaced, not stacked. Then click Close once: the video is fully
+      uncovered, with no stale frozen frame left behind it.
+
+## Transitions with the overlay open
+
+These are state *changes* while the overlay is live, which is where the states
+above cannot go wrong but the transitions between them can.
+
+- [ ] **Enter fullscreen while the overlay is open** (press the shortcut inline,
+      then f on YouTube) — the frozen frame follows into fullscreen and stays
+      selectable. A pass is that it is visible at all: nothing outside the
+      fullscreen element is rendered, so an overlay left on document.body
+      simply vanishes.
+- [ ] **Leave fullscreen again** — the overlay comes back out with the player
+      and lands back on the video, not somewhere else on the page.
+- [ ] **Toggle theatre mode / resize the window while open** — the picture and
+      the invisible text rescale *together*. Check by dragging across a line
+      after the resize: the highlight must still sit on the letters. The
+      picture rescaling on its own is not a pass.
 - [ ] Second capture in the same session is noticeably faster than the first
       (the Tesseract worker stays warm).
