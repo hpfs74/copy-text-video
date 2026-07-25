@@ -3,10 +3,13 @@ import { describe, it, expect, vi } from 'vitest';
 import { runCapture } from '../../src/content/index.js';
 import { ERROR, ERROR_MESSAGE } from '../../src/lib/messages.js';
 
+// A 2:1 video in an 800x250 box: pillarboxed, 150px bars left and right. The
+// element rect and the content rect differ, which is the whole point of
+// computeContentRect and has to be visible to these tests.
 const candidate = {
   id: 'v1',
   kind: 'video',
-  rect: { left: 40, top: 20, width: 500, height: 250 },
+  rect: { left: 40, top: 20, width: 800, height: 250 },
   intrinsicWidth: 1000,
   intrinsicHeight: 500,
   paused: false,
@@ -73,11 +76,11 @@ describe('runCapture', () => {
   it('mounts the overlay at the content rect, not the element rect', async () => {
     const { deps } = makeDeps();
     await runCapture(deps);
-    // 1000x500 content in a 500x250 box already matches: no letterboxing.
+    // The 800px-wide box holds 500px of picture, centred: left 40+150, not 40.
     expect(deps.mountOverlay).toHaveBeenCalledWith(
       expect.objectContaining({
         frame,
-        contentRect: { left: 40, top: 20, width: 500, height: 250 },
+        contentRect: { left: 190, top: 20, width: 500, height: 250 },
       })
     );
   });
