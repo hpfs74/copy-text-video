@@ -46,7 +46,16 @@ npm run check:permissions # fail if the manifest gains permissions
 npm run check:audit       # fail on high/critical dependency advisories
 npm run build             # bundle to dist/
 npm run package           # build, then zip to release/ for the Web Store
+npm run icons             # regenerate icons/ and the store promo tile
 ```
+
+The icons are drawn in code (`scripts/make-icons.mjs`) rather than checked in as opaque
+binaries, so the design is reviewable in a diff and every size comes from one source. The
+committed PNGs are the build input; regenerate them if you change the script. A test
+asserts each declared icon exists and is genuinely the size it claims, because a wrong
+icon is otherwise only discovered at publish time.
+
+Store listing copy lives in `docs/chrome-web-store-listing.md`.
 
 ## CI
 

@@ -30,5 +30,7 @@ await esbuild.build({
 await cp('manifest.json', `${outdir}/manifest.json`);
 await cp('src/offscreen/offscreen.html', `${outdir}/offscreen/offscreen.html`);
 await cp('vendor', `${outdir}/vendor`, { recursive: true });
+// The manifest references these; a missing icon makes the extension unloadable.
+await cp('icons', `${outdir}/icons`, { recursive: true });
 
 console.log('built to dist/');
