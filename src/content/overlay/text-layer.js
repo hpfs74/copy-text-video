@@ -40,3 +40,59 @@ export function layoutTextLayer(ocrResult, contentRect) {
 export function layoutToText(layout) {
   return layout.lines.map((line) => line.words.map((w) => w.text).join(' ')).join('\n');
 }
+
+/**
+ * Build the invisible, selectable DOM. Each word is a real text node so the
+ * browser's own selection, highlight, double-click-word and clipboard handling
+ * do all the work; nothing here implements copying.
+ *
+ * @param {Layout} layout
+ * @param {Document} doc
+ * @returns {HTMLElement}
+ */
+export function renderTextLayer(layout, doc) {
+  const root = doc.createElement('div');
+  root.className = 'vts-text-layer';
+
+  for (const line of layout.lines) {
+    const lineElement = doc.createElement('div');
+    lineElement.className = 'vts-line';
+
+    line.words.forEach((word, index) => {
+      // A block element per line plus spaces between words is what makes the
+      // copied text come out as "The quick brown fox\njumps over".
+      if (index > 0) lineElement.appendChild(doc.createTextNode(' '));
+
+      const span = doc.createElement('span');
+      span.className = 'vts-word';
+      span.textContent = word.text;
+      span.style.left = `${word.left}px`;
+      span.style.top = `${word.top}px`;
+      span.style.height = `${word.height}px`;
+      span.style.fontSize = `${word.fontSize}px`;
+      span.dataset.width = String(word.width);
+      lineElement.appendChild(span);
+    });
+
+    root.appendChild(lineElement);
+  }
+
+  return root;
+}
+
+/**
+ * Squeeze or stretch each span horizontally so its glyphs span exactly the
+ * width Tesseract measured. This is the pdf.js technique — without it the
+ * selection highlight drifts away from the letters across a long line.
+ *
+ * @param {HTMLElement} root
+ * @param {(span: HTMLElement) => number} measure injected for testability
+ */
+export function fitSpanWidths(root, measure = (span) => span.getBoundingClientRect().width) {
+  for (const span of root.querySelectorAll('.vts-word')) {
+    const target = Number(span.dataset.width);
+    const natural = measure(span);
+    if (!natural || !target) continue;
+    span.style.transform = `scaleX(${target / natural})`;
+  }
+}
