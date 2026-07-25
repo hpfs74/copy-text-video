@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Video Text Select",
+  "version": "0.1.0",
+  "description": "Pause a video and select text out of the frame, like macOS Live Text.",
+  "minimum_chrome_version": "116",
+  "permissions": ["activeTab", "scripting", "offscreen"],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "commands": {
+    "capture-frame": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Freeze the video frame and select text"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}

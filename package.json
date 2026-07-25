@@ -1,0 +1,32 @@
+{
+  "name": "video-text-select",
+  "version": "1.0.0",
+  "description": "Chrome extension: freeze a video frame, OCR it locally, and select text out of the picture.",
+  "private": true,
+  "scripts": {
+    "vendor": "node scripts/vendor.mjs",
+    "build": "npm run vendor && node scripts/build.mjs",
+    "package": "npm run build && node scripts/package.mjs",
+    "test": "vitest run tests --exclude tests/integration/**",
+    "test:integration": "vitest run tests/integration",
+    "lint": "eslint .",
+    "check:permissions": "node scripts/check-permissions.mjs",
+    "check:audit": "npm audit --audit-level=high"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@napi-rs/canvas": "^1.0.2",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.8.0",
+    "globals": "^17.7.0",
+    "jsdom": "^29.1.1",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "tesseract.js": "^7.0.0"
+  }
+}

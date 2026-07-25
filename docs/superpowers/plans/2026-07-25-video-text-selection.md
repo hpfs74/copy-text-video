@@ -378,14 +378,13 @@ describe('computeContentRect', () => {
 
   it('overflows the element for object-fit: cover', () => {
     // Cover scales to the larger factor, so content bleeds past the box and
-    // is centred on it. Negative offsets are correct and expected here.
+    // is centred on it. A 16:9 video in a 4:3 box overflows horizontally.
     const rect = { left: 0, top: 0, width: 640, height: 480 };
-    expect(computeContentRect(rect, 1920, 1080, 'cover')).toEqual({
-      left: 0,
-      top: -120,
-      width: 640,
-      height: 720,
-    });
+    const result = computeContentRect(rect, 1920, 1080, 'cover');
+    expect(result.width).toBeCloseTo(853.333, 2);
+    expect(result.height).toBeCloseTo(480, 2);
+    expect(result.left).toBeCloseTo(-106.667, 2);
+    expect(result.top).toBeCloseTo(0, 2);
   });
 
   it('stretches to the element for object-fit: fill', () => {
@@ -787,10 +786,13 @@ describe('isBlankFrame', () => {
   });
 
   it('is not fooled by a mostly-black frame with real content', () => {
-    // A dark slide with white text: 1% bright pixels is still a real frame.
+    // A dark slide with white text: 100 bright pixels in 10000 (1% bright).
+    // Sampler reads every 97 pixels; only pixels at indices 0 and 9700 align
+    // with the sample stride, so 2 out of 104 samples are bright (≈1.9%),
+    // which exceeds minBrightRatio of 0.1%, so the frame is not blank.
     const pixels = solid(10000, 0, 0, 0);
     for (let i = 0; i < 100; i++) {
-      const p = i * 4 * 97; // spread the bright pixels across the buffer
+      const p = i * 400; // place bright pixels every 100 pixels (byte offset)
       pixels[p] = 255;
       pixels[p + 1] = 255;
       pixels[p + 2] = 255;
@@ -1547,10 +1549,31 @@ describe('layoutTextLayer', () => {
     expect(empty.lines).toEqual([]);
   });
 
-  it('survives a zero-width content rect without producing NaN', () => {
+  it('produces zero-sized words when content rect is collapsed', () => {
     const layout = layoutTextLayer(ocr, { left: 0, top: 0, width: 0, height: 0 });
+    expect(layout.lines[0].words[0]).toEqual({
+      text: 'The',
+      left: 0,
+      top: 0,
+      width: 0,
+      height: 0,
+      fontSize: 0,
+    });
+  });
+
+  it('survives zero-width OCR result without producing Infinity or NaN', () => {
+    // Guard protects against ocrResult.width === 0, which would cause division by zero.
+    // With contentRect.width > 0, the numerator is nonzero while denominator is zero,
+    // yielding Infinity. Guard ensures scale = 0 instead, making all coordinates finite.
+    const layout = layoutTextLayer(
+      { width: 0, height: 500, lines: ocr.lines },
+      { left: 0, top: 0, width: 1000, height: 500 }
+    );
     for (const word of layout.lines[0].words) {
       expect(Number.isFinite(word.left)).toBe(true);
+      expect(Number.isFinite(word.top)).toBe(true);
+      expect(Number.isFinite(word.width)).toBe(true);
+      expect(Number.isFinite(word.height)).toBe(true);
       expect(Number.isFinite(word.fontSize)).toBe(true);
     }
   });
@@ -1625,7 +1648,7 @@ export function layoutToText(layout) {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run tests/content/overlay/text-layer.test.js`
-Expected: PASS (9 tests)
+Expected: PASS (10 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -2099,20 +2122,46 @@ describe('mountOverlay', () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
-  it('does not call onDismiss twice when destroyed after dismissal', () => {
+  it('destroy() after a dismissal does not throw or call onDismiss again', () => {
     const onDismiss = vi.fn();
     const handle = mount({ onDismiss });
     handle.shadow.querySelector('[data-action="close"]').click();
-    handle.destroy();
+    expect(() => handle.destroy()).not.toThrow();
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
-  it('stops listening for Escape once destroyed', () => {
+  it('calls onDismiss only once when the close button fires dismiss twice', () => {
+    // The close button's own click listener is never unbound, so a
+    // detached-but-still-referenced button can still dispatch a second
+    // click after the first dismissal. Without the `dismissed` guard this
+    // would tear down and invoke onDismiss a second time.
     const onDismiss = vi.fn();
     const handle = mount({ onDismiss });
+    const closeButton = handle.shadow.querySelector('[data-action="close"]');
+    closeButton.click();
+    closeButton.click();
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops Escape from propagating past the overlay while mounted, and releases it once destroyed', () => {
+    const onDismiss = vi.fn();
+    const handle = mount({ onDismiss });
+
+    let probeCalled = false;
+    const probe = () => {
+      probeCalled = true;
+    };
+    document.body.addEventListener('keydown', probe);
+
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(probeCalled).toBe(false);
+
     handle.destroy();
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-    expect(onDismiss).not.toHaveBeenCalled();
+    probeCalled = false;
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(probeCalled).toBe(true);
+
+    document.body.removeEventListener('keydown', probe);
   });
 });
 ```

@@ -1,0 +1,141 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+# Never let two releases race for the same version number.
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Version, package and publish
+    runs-on: ubuntu-latest
+    # The job pushes its own version-bump commit back to main. GitHub already
+    # declines to trigger workflows from a GITHUB_TOKEN push, but this makes the
+    # loop impossible rather than merely unlikely.
+    if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The version is derived from the commits since the last tag, so the
+          # full history and all tags have to be present.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      # main should already be green, but a merge can combine two individually
+      # passing branches into a broken one. Nothing gets a version number until
+      # it passes the same gates a PR does.
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Extension permission guard
+        run: npm run check:permissions
+
+      - name: Cache vendored Tesseract runtime
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: tesseract-${{ runner.os }}-${{ hashFiles('package-lock.json', 'scripts/vendor.mjs') }}
+
+      - name: Vendor Tesseract runtime
+        run: npm run vendor
+
+      - name: OCR integration test
+        run: npm run test:integration
+
+      # feat: -> minor, fix:/perf: -> patch, ! or BREAKING CHANGE -> major,
+      # anything else -> no release at all.
+      - name: Resolve next version
+        id: version
+        run: node scripts/release-version.mjs --apply
+
+      - name: Build and package
+        if: steps.version.outputs.bump != 'none'
+        id: package
+        run: npm run package
+
+      - name: Commit version bump and tag
+        if: steps.version.outputs.bump != 'none'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add manifest.json package.json
+          git commit -m "chore(release): v${VERSION} [skip ci]"
+          git tag -a "v${VERSION}" -m "v${VERSION}"
+          git push origin HEAD:main
+          git push origin "v${VERSION}"
+
+      # Notes are built here rather than with --generate-notes so the first
+      # release (which has no previous tag to diff against) works identically
+      # to every later one.
+      - name: Write release notes
+        if: steps.version.outputs.bump != 'none'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUMP: ${{ steps.version.outputs.bump }}
+          PREVIOUS: ${{ steps.version.outputs.previous }}
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "v${VERSION}^" 2>/dev/null || true)
+          if [ -n "$PREV_TAG" ]; then
+            RANGE="${PREV_TAG}..v${VERSION}"
+            echo "## Changes since ${PREV_TAG}" > notes.md
+          else
+            RANGE="v${VERSION}"
+            echo "## Changes" > notes.md
+          fi
+          echo "" >> notes.md
+          git log "$RANGE" --no-merges --format='- %s (%h)' \
+            --grep='^chore(release):' --invert-grep >> notes.md
+          cat >> notes.md <<'EOF'
+
+          ## Install
+
+          The attached zip is the unpacked extension. Upload it to the Chrome Web Store,
+          or extract it and load it via `chrome://extensions` → Load unpacked.
+
+          ## Verification status
+
+          Built, linted and tested automatically, including a real OCR pass against a
+          golden image. There is no automated browser test for this extension — layout,
+          painting, text selection and clipboard behaviour are all unverifiable in CI.
+          See `docs/manual-test-checklist.md` for what still needs a human.
+          EOF
+
+      - name: Publish GitHub release
+        if: steps.version.outputs.bump != 'none'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BUMP: ${{ steps.version.outputs.bump }}
+        run: |
+          gh release create "v${VERSION}" \
+            "release/video-text-select-${VERSION}.zip" \
+            --title "v${VERSION} (${BUMP})" \
+            --notes-file notes.md
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ "${{ steps.version.outputs.bump }}" = "none" ]; then
+            echo "No release-worthy commits since the last tag — nothing published." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Released **v${{ steps.version.outputs.version }}** (${{ steps.version.outputs.bump }} bump from ${{ steps.version.outputs.previous }})." >> $GITHUB_STEP_SUMMARY
+          fi

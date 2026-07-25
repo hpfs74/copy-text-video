@@ -1,0 +1,231 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi } from 'vitest';
+import { runCapture } from '../../src/content/index.js';
+import { ERROR, ERROR_MESSAGE } from '../../src/lib/messages.js';
+
+// A 2:1 video in an 800x250 box: pillarboxed, 150px bars left and right. The
+// element rect and the content rect differ, which is the whole point of
+// computeContentRect and has to be visible to these tests.
+const candidate = {
+  id: 'v1',
+  kind: 'video',
+  rect: { left: 40, top: 20, width: 800, height: 250 },
+  intrinsicWidth: 1000,
+  intrinsicHeight: 500,
+  paused: false,
+  objectFit: 'contain',
+};
+
+const frame = { dataUrl: 'data:image/png;base64,AAAA', width: 1000, height: 500 };
+
+const ocrResult = {
+  width: 1000,
+  height: 500,
+  lines: [
+    {
+      text: 'hello',
+      words: [
+        { text: 'hello', bbox: { x0: 0, y0: 0, x1: 100, y1: 40 }, confidence: 95 },
+      ],
+    },
+  ],
+};
+
+function makeDeps(overrides = {}) {
+  const element = { pause: vi.fn() };
+  const handle = {
+    setResult: vi.fn(),
+    setError: vi.fn(),
+    destroy: vi.fn(),
+  };
+  return {
+    element,
+    handle,
+    deps: {
+      collectCandidates: vi.fn(() => [{ ...candidate, element }]),
+      captureFrame: vi.fn(() => frame),
+      mountOverlay: vi.fn(() => handle),
+      requestOcr: vi.fn(async () => ({ ok: true, result: ocrResult })),
+      showToast: vi.fn(),
+      viewport: { width: 1000, height: 800 },
+      doc: document,
+      // Per-call by default so one test's live overlay cannot reach into the
+      // next; pass a shared object to exercise the second-capture path.
+      globals: {},
+      ...overrides,
+    },
+  };
+}
+
+describe('runCapture', () => {
+  it('pauses a playing video before capturing', async () => {
+    const { element, deps } = makeDeps();
+    await runCapture(deps);
+    expect(element.pause).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not pause a video that was already paused', async () => {
+    const element = { pause: vi.fn() };
+    const { deps } = makeDeps({
+      collectCandidates: () => [{ ...candidate, paused: true, element }],
+    });
+    await runCapture(deps);
+    expect(element.pause).not.toHaveBeenCalled();
+  });
+
+  it('mounts the overlay at the content rect, not the element rect', async () => {
+    const { deps } = makeDeps();
+    await runCapture(deps);
+    // The 800px-wide box holds 500px of picture, centred: left 40+150, not 40.
+    expect(deps.mountOverlay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        frame,
+        contentRect: { left: 190, top: 20, width: 500, height: 250 },
+      })
+    );
+  });
+
+  it('mounts the overlay before OCR completes so the user sees the frozen frame', async () => {
+    const order = [];
+    const { deps } = makeDeps({
+      mountOverlay: vi.fn(() => {
+        order.push('mount');
+        return { setResult: vi.fn(), setError: vi.fn(), destroy: vi.fn() };
+      }),
+      requestOcr: vi.fn(async () => {
+        order.push('ocr');
+        return { ok: true, result: ocrResult };
+      }),
+    });
+    await runCapture(deps);
+    expect(order).toEqual(['mount', 'ocr']);
+  });
+
+  it('hands the recognised text to the overlay on success', async () => {
+    const { handle, deps } = makeDeps();
+    await runCapture(deps);
+    expect(handle.setResult).toHaveBeenCalledWith(ocrResult);
+  });
+
+  it('toasts and does not mount when there is no target', async () => {
+    const { deps } = makeDeps({ collectCandidates: () => [] });
+    await runCapture(deps);
+    expect(deps.showToast).toHaveBeenCalledWith(
+      ERROR_MESSAGE[ERROR.NO_TARGET],
+      document
+    );
+    expect(deps.mountOverlay).not.toHaveBeenCalled();
+  });
+
+  it('tells the user the video has not loaded rather than that there is none', async () => {
+    const { deps } = makeDeps({
+      collectCandidates: () => [
+        { ...candidate, intrinsicWidth: 0, intrinsicHeight: 0, element: {} },
+      ],
+    });
+    await runCapture(deps);
+    expect(deps.showToast).toHaveBeenCalledWith(ERROR_MESSAGE[ERROR.NOT_READY], document);
+    expect(deps.mountOverlay).not.toHaveBeenCalled();
+  });
+
+  it('stays silent in a subframe with no target', async () => {
+    // Injection is allFrames: on a page embedding a YouTube player the top
+    // frame has no video, and toasting from every frame that misses would
+    // contradict the overlay the iframe just mounted.
+    const { deps } = makeDeps({ collectCandidates: () => [], isTopFrame: false });
+    await runCapture(deps);
+    expect(deps.showToast).not.toHaveBeenCalled();
+  });
+
+  it('toasts and resumes playback when capture is blocked', async () => {
+    const element = { pause: vi.fn(), play: vi.fn() };
+    const { deps } = makeDeps({
+      collectCandidates: () => [{ ...candidate, element }],
+      captureFrame: () => {
+        const error = new Error('blocked');
+        error.code = ERROR.BLOCKED;
+        throw error;
+      },
+    });
+
+    await runCapture(deps);
+
+    expect(deps.showToast).toHaveBeenCalledWith(ERROR_MESSAGE[ERROR.BLOCKED], document);
+    expect(element.play).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports an OCR failure on the overlay rather than tearing it down', async () => {
+    const { handle, deps } = makeDeps({
+      requestOcr: async () => ({ ok: false, code: ERROR.OCR_TIMEOUT }),
+    });
+    await runCapture(deps);
+    expect(handle.setError).toHaveBeenCalledWith(ERROR.OCR_TIMEOUT);
+    expect(handle.destroy).not.toHaveBeenCalled();
+  });
+
+  it('reports NO_TEXT when OCR succeeds but finds nothing', async () => {
+    const { handle, deps } = makeDeps({
+      requestOcr: async () => ({ ok: true, result: { width: 1000, height: 500, lines: [] } }),
+    });
+    await runCapture(deps);
+    expect(handle.setError).toHaveBeenCalledWith(ERROR.NO_TEXT);
+  });
+
+  it('resumes playback on dismiss only if it was the one that paused', async () => {
+    const element = { pause: vi.fn(), play: vi.fn() };
+    const { deps } = makeDeps({ collectCandidates: () => [{ ...candidate, element }] });
+    await runCapture(deps);
+
+    deps.mountOverlay.mock.calls[0][0].onDismiss();
+    expect(element.play).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces the live overlay instead of stacking a second one on it', async () => {
+    // The running guard is cleared as soon as OCR resolves, but the overlay
+    // outlives it. Without this, a second shortcut press mounts a second
+    // overlay over the first and Close only ever dismisses the newest, leaving
+    // a stale frozen frame nailed over the video.
+    const globals = {};
+    const firstElement = { pause: vi.fn(), play: vi.fn() };
+    const first = makeDeps({
+      globals,
+      collectCandidates: () => [{ ...candidate, element: firstElement }],
+    });
+    await runCapture(first.deps);
+
+    const second = makeDeps({ globals });
+    await runCapture(second.deps);
+
+    expect(first.handle.destroy).toHaveBeenCalledTimes(1);
+    expect(firstElement.play).toHaveBeenCalledTimes(1);
+    expect(second.handle.destroy).not.toHaveBeenCalled();
+    expect(second.deps.mountOverlay).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not touch an overlay the user has already dismissed', async () => {
+    const globals = {};
+    const element = { pause: vi.fn(), play: vi.fn() };
+    const { handle, deps } = makeDeps({
+      globals,
+      collectCandidates: () => [{ ...candidate, element }],
+    });
+    await runCapture(deps);
+
+    deps.mountOverlay.mock.calls[0][0].onDismiss();
+    await runCapture(makeDeps({ globals }).deps);
+
+    expect(handle.destroy).not.toHaveBeenCalled();
+    expect(element.play).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves an already-paused video paused on dismiss', async () => {
+    const element = { pause: vi.fn(), play: vi.fn() };
+    const { deps } = makeDeps({
+      collectCandidates: () => [{ ...candidate, paused: true, element }],
+    });
+    await runCapture(deps);
+
+    deps.mountOverlay.mock.calls[0][0].onDismiss();
+    expect(element.play).not.toHaveBeenCalled();
+  });
+});
