@@ -1,5 +1,5 @@
 import css from './overlay.css';
-import { renderTextLayer, fitSpanWidths, layoutToText } from './text-layer.js';
+import { layoutTextLayer, renderTextLayer, fitSpanWidths, layoutToText } from './text-layer.js';
 import { ERROR_MESSAGE } from '../../lib/messages.js';
 
 /**
@@ -8,9 +8,16 @@ import { ERROR_MESSAGE } from '../../lib/messages.js';
  *   contentRect: {left:number, top:number, width:number, height:number},
  *   doc?: Document,
  *   onDismiss?: () => void,
+ *   measureSpan?: (span: HTMLElement) => number,
  * }} options
  */
-export function mountOverlay({ frame, contentRect, doc = document, onDismiss = () => {} }) {
+export function mountOverlay({
+  frame,
+  contentRect,
+  doc = document,
+  onDismiss = () => {},
+  measureSpan,
+}) {
   const host = doc.createElement('div');
   host.style.all = 'initial';
   const shadow = host.attachShadow({ mode: 'open' });
@@ -46,12 +53,26 @@ export function mountOverlay({ frame, contentRect, doc = document, onDismiss = (
 
   // A fullscreen video renders above everything in the normal DOM, so an
   // overlay on document.body would simply be invisible.
-  const container = doc.fullscreenElement ?? doc.body;
-  container.appendChild(host);
+  const containerFor = () => doc.fullscreenElement ?? doc.body;
+  containerFor().appendChild(host);
 
   let textLayer = null;
   let currentLayout = { lines: [] };
+  let currentRect = { ...contentRect };
+  let ocrResult = null;
   let dismissed = false;
+
+  // The spans are absolutely positioned in px, so they only stay on the letters
+  // for the rect they were laid out against. Re-deriving them from the OCR
+  // result is what lets the overlay survive a resize or a late reflow.
+  function renderLayout() {
+    currentLayout = layoutTextLayer(ocrResult, currentRect);
+    textLayer?.remove();
+    textLayer = renderTextLayer(currentLayout, doc);
+    root.appendChild(textLayer);
+    fitSpanWidths(textLayer, measureSpan);
+    root.dataset.state = 'ready';
+  }
 
   function onKeyDown(event) {
     if (event.key === 'Escape') {
@@ -90,13 +111,13 @@ export function mountOverlay({ frame, contentRect, doc = document, onDismiss = (
   return {
     host,
     shadow,
-    setLayout(layout) {
-      currentLayout = layout;
-      textLayer?.remove();
-      textLayer = renderTextLayer(layout, doc);
-      root.appendChild(textLayer);
-      fitSpanWidths(textLayer);
-      root.dataset.state = 'ready';
+    /**
+     * Takes the OCR result rather than a finished layout: the overlay knows the
+     * live content rect, so it is the only thing that can keep the two in step.
+     */
+    setResult(result) {
+      ocrResult = result;
+      renderLayout();
     },
     setStatus,
     setError(code) {
@@ -104,7 +125,21 @@ export function mountOverlay({ frame, contentRect, doc = document, onDismiss = (
       setStatus(ERROR_MESSAGE[code] ?? ERROR_MESSAGE.unknown);
     },
     reposition(rect) {
+      const resized = rect.width !== currentRect.width || rect.height !== currentRect.height;
+      currentRect = { ...rect };
       applyRect(root, rect);
+      // The <img> is width/height:100% so the picture rescales by itself; the
+      // spans are in px and have to be laid out again against the new rect.
+      if (resized && ocrResult) renderLayout();
+    },
+    /**
+     * Move the host into whatever is rendering now. Entering fullscreen while
+     * the overlay is open otherwise leaves it in document.body, which is not
+     * rendered at all in fullscreen — the frame simply vanishes.
+     */
+    syncContainer() {
+      const container = containerFor();
+      if (host.parentNode !== container) container.appendChild(host);
     },
     destroy() {
       if (dismissed) return;

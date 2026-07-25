@@ -9,9 +9,11 @@ const target = {
   element: {},
 };
 
+const fakeOverlay = () => ({ reposition: vi.fn(), syncContainer: vi.fn() });
+
 describe('trackTarget', () => {
   it('repositions the overlay when the page scrolls', () => {
-    const overlay = { reposition: vi.fn() };
+    const overlay = fakeOverlay();
     const stop = trackTarget(target, overlay, {
       doc: document,
       measure: () => ({ left: 0, top: 100, width: 500, height: 250 }),
@@ -30,7 +32,7 @@ describe('trackTarget', () => {
   });
 
   it('repositions on resize', () => {
-    const overlay = { reposition: vi.fn() };
+    const overlay = fakeOverlay();
     const stop = trackTarget(target, overlay, {
       doc: document,
       measure: () => ({ left: 0, top: 0, width: 800, height: 400 }),
@@ -43,10 +45,32 @@ describe('trackTarget', () => {
     stop();
   });
 
+  it('re-parents the overlay when fullscreen is entered or left', () => {
+    // Repositioning alone is not enough: document.body is not rendered at all
+    // while a fullscreen element is up, so the overlay would just vanish.
+    const overlay = fakeOverlay();
+    const stop = trackTarget(target, overlay, {
+      doc: document,
+      measure: () => ({ left: 0, top: 0, width: 500, height: 250 }),
+      schedule: (fn) => fn(),
+    });
+
+    document.dispatchEvent(new Event('fullscreenchange'));
+
+    expect(overlay.syncContainer).toHaveBeenCalledTimes(1);
+    expect(overlay.reposition).toHaveBeenCalledTimes(1);
+
+    stop();
+    document.dispatchEvent(new Event('fullscreenchange'));
+    expect(overlay.syncContainer).toHaveBeenCalledTimes(1);
+  });
+
   it('stops repositioning once stopped', () => {
-    const overlay = { reposition: vi.fn() };
+    const overlay = fakeOverlay();
     const addSpy = vi.spyOn(window, 'addEventListener');
     const removeSpy = vi.spyOn(window, 'removeEventListener');
+    const docAddSpy = vi.spyOn(document, 'addEventListener');
+    const docRemoveSpy = vi.spyOn(document, 'removeEventListener');
     const stop = trackTarget(target, overlay, {
       doc: document,
       measure: () => ({ left: 0, top: 0, width: 100, height: 50 }),
@@ -65,8 +89,14 @@ describe('trackTarget', () => {
     const [resizeType, resizeHandler] = addSpy.mock.calls.find(([type]) => type === 'resize');
     expect(removeSpy).toHaveBeenCalledWith(scrollType, scrollHandler, true);
     expect(removeSpy).toHaveBeenCalledWith(resizeType, resizeHandler);
+    const [fsType, fsHandler] = docAddSpy.mock.calls.find(
+      ([type]) => type === 'fullscreenchange'
+    );
+    expect(docRemoveSpy).toHaveBeenCalledWith(fsType, fsHandler);
 
     addSpy.mockRestore();
     removeSpy.mockRestore();
+    docAddSpy.mockRestore();
+    docRemoveSpy.mockRestore();
   });
 });

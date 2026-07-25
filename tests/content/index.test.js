@@ -31,7 +31,7 @@ const ocrResult = {
 function makeDeps(overrides = {}) {
   const element = { pause: vi.fn() };
   const handle = {
-    setLayout: vi.fn(),
+    setResult: vi.fn(),
     setError: vi.fn(),
     destroy: vi.fn(),
   };
@@ -84,7 +84,7 @@ describe('runCapture', () => {
     const { deps } = makeDeps({
       mountOverlay: vi.fn(() => {
         order.push('mount');
-        return { setLayout: vi.fn(), setError: vi.fn(), destroy: vi.fn() };
+        return { setResult: vi.fn(), setError: vi.fn(), destroy: vi.fn() };
       }),
       requestOcr: vi.fn(async () => {
         order.push('ocr');
@@ -95,11 +95,10 @@ describe('runCapture', () => {
     expect(order).toEqual(['mount', 'ocr']);
   });
 
-  it('hands the laid-out text to the overlay on success', async () => {
+  it('hands the recognised text to the overlay on success', async () => {
     const { handle, deps } = makeDeps();
     await runCapture(deps);
-    const layout = handle.setLayout.mock.calls[0][0];
-    expect(layout.lines[0].words[0].text).toBe('hello');
+    expect(handle.setResult).toHaveBeenCalledWith(ocrResult);
   });
 
   it('toasts and does not mount when there is no target', async () => {

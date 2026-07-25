@@ -43,6 +43,23 @@ export function computeContentRect(rect, intrinsicWidth, intrinsicHeight, object
   };
 }
 
+/**
+ * The content rect of a picked target. `rect` defaults to the one measured when
+ * the candidate was collected; pass a fresh one to re-measure after a reflow.
+ * Every caller goes through here so the initial mount and the tracking updates
+ * cannot drift apart.
+ *
+ * @returns {Rect}
+ */
+export function targetContentRect(target, rect = target.rect) {
+  return computeContentRect(
+    rect,
+    target.intrinsicWidth,
+    target.intrinsicHeight,
+    target.objectFit
+  );
+}
+
 /** Area of the element actually inside the viewport, in square CSS pixels. */
 export function visibleArea(rect, viewport) {
   const width = Math.max(

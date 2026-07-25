@@ -1,7 +1,6 @@
-import { collectCandidates, pickTarget, computeContentRect } from './video-target.js';
+import { collectCandidates, pickTarget, targetContentRect } from './video-target.js';
 import { captureFrame, classifyCaptureError } from './capture.js';
 import { mountOverlay } from './overlay/overlay.js';
-import { layoutTextLayer } from './overlay/text-layer.js';
 import { showToast } from './toast.js';
 import { MSG, ERROR, ERROR_MESSAGE } from '../lib/messages.js';
 
@@ -26,12 +25,12 @@ export function trackTarget(target, overlay, options = {}) {
     schedule = requestAnimationFrame,
     measure = () => {
       const rect = target.element.getBoundingClientRect();
-      return computeContentRect(
-        { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
-        target.intrinsicWidth,
-        target.intrinsicHeight,
-        target.objectFit
-      );
+      return targetContentRect(target, {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      });
     },
   } = options;
 
@@ -47,15 +46,23 @@ export function trackTarget(target, overlay, options = {}) {
     });
   };
 
+  // Repositioning is not enough here: the host has to move into the element
+  // that is now rendering, or the overlay disappears behind the fullscreen view.
+  const onFullscreenChange = () => {
+    if (stopped) return;
+    overlay.syncContainer();
+    update();
+  };
+
   window.addEventListener('scroll', update, true);
   window.addEventListener('resize', update);
-  doc.addEventListener('fullscreenchange', update);
+  doc.addEventListener('fullscreenchange', onFullscreenChange);
 
   return () => {
     stopped = true;
     window.removeEventListener('scroll', update, true);
     window.removeEventListener('resize', update);
-    doc.removeEventListener('fullscreenchange', update);
+    doc.removeEventListener('fullscreenchange', onFullscreenChange);
   };
 }
 
@@ -72,6 +79,7 @@ export async function runCapture(deps = {}) {
     showToast: toast = showToast,
     doc = document,
     viewport = { width: window.innerWidth, height: window.innerHeight },
+    schedule = requestAnimationFrame,
   } = deps;
 
   const target = pickTarget(collect(doc), viewport);
@@ -97,12 +105,7 @@ export async function runCapture(deps = {}) {
     return;
   }
 
-  const contentRect = computeContentRect(
-    target.rect,
-    target.intrinsicWidth,
-    target.intrinsicHeight,
-    target.objectFit
-  );
+  const contentRect = targetContentRect(target);
 
   // Mount before OCR: the user should see the frame freeze instantly, with the
   // scanning shimmer explaining the couple of seconds that follow.
@@ -116,7 +119,7 @@ export async function runCapture(deps = {}) {
       resume();
     },
   });
-  stopTracking = trackTarget(target, overlay, { doc });
+  stopTracking = trackTarget(target, overlay, { doc, schedule });
 
   let response;
   try {
@@ -135,7 +138,9 @@ export async function runCapture(deps = {}) {
     return;
   }
 
-  overlay.setLayout(layoutTextLayer(response.result, contentRect));
+  // The overlay lays this out itself, against whatever rect tracking has moved
+  // it to by now — the page may well have reflowed during the OCR wait.
+  overlay.setResult(response.result);
 }
 
 // Re-injection is how a second keypress arrives, so guard against stacking.
