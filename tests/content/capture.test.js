@@ -57,10 +57,13 @@ describe('isBlankFrame', () => {
   });
 
   it('is not fooled by a mostly-black frame with real content', () => {
-    // A dark slide with white text: 1% bright pixels is still a real frame.
+    // A dark slide with white text: 100 bright pixels in 10000 (1% bright).
+    // Sampler reads every 97 pixels; only pixels at indices 0 and 9700 align
+    // with the sample stride, so 2 out of 104 samples are bright (≈1.9%),
+    // which exceeds minBrightRatio of 0.1%, so the frame is not blank.
     const pixels = solid(10000, 0, 0, 0);
     for (let i = 0; i < 100; i++) {
-      const p = i * 4 * 97; // spread the bright pixels across the buffer
+      const p = i * 400; // place bright pixels every 100 pixels (byte offset)
       pixels[p] = 255;
       pixels[p + 1] = 255;
       pixels[p + 2] = 255;
