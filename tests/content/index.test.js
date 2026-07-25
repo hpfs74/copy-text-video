@@ -111,6 +111,15 @@ describe('runCapture', () => {
     expect(deps.mountOverlay).not.toHaveBeenCalled();
   });
 
+  it('stays silent in a subframe with no target', async () => {
+    // Injection is allFrames: on a page embedding a YouTube player the top
+    // frame has no video, and toasting from every frame that misses would
+    // contradict the overlay the iframe just mounted.
+    const { deps } = makeDeps({ collectCandidates: () => [], isTopFrame: false });
+    await runCapture(deps);
+    expect(deps.showToast).not.toHaveBeenCalled();
+  });
+
   it('toasts and resumes playback when capture is blocked', async () => {
     const element = { pause: vi.fn(), play: vi.fn() };
     const { deps } = makeDeps({

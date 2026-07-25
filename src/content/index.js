@@ -80,11 +80,17 @@ export async function runCapture(deps = {}) {
     doc = document,
     viewport = { width: window.innerWidth, height: window.innerHeight },
     schedule = requestAnimationFrame,
+    isTopFrame = typeof window === 'undefined' || window.top === window,
   } = deps;
 
-  const target = pickTarget(collect(doc), viewport);
+  const candidates = collect(doc);
+  const target = pickTarget(candidates, viewport);
   if (!target) {
-    toast(ERROR_MESSAGE[ERROR.NO_TARGET], doc);
+    // Injection is allFrames, so on a page embedding a player every frame runs
+    // this and only one of them has the video. Toasting from the top frame
+    // would tell the user "No video found" at the same moment the iframe puts
+    // an overlay on screen.
+    if (isTopFrame) toast(ERROR_MESSAGE[ERROR.NO_TARGET], doc);
     return;
   }
 
