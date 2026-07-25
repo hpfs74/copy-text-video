@@ -140,19 +140,45 @@ describe('mountOverlay', () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
-  it('does not call onDismiss twice when destroyed after dismissal', () => {
+  it('destroy() after a dismissal does not throw or call onDismiss again', () => {
     const onDismiss = vi.fn();
     const handle = mount({ onDismiss });
     handle.shadow.querySelector('[data-action="close"]').click();
-    handle.destroy();
+    expect(() => handle.destroy()).not.toThrow();
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
-  it('stops listening for Escape once destroyed', () => {
+  it('calls onDismiss only once when the close button fires dismiss twice', () => {
+    // The close button's own click listener is never unbound, so a
+    // detached-but-still-referenced button can still dispatch a second
+    // click after the first dismissal. Without the `dismissed` guard this
+    // would tear down and invoke onDismiss a second time.
     const onDismiss = vi.fn();
     const handle = mount({ onDismiss });
+    const closeButton = handle.shadow.querySelector('[data-action="close"]');
+    closeButton.click();
+    closeButton.click();
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops Escape from propagating past the overlay while mounted, and releases it once destroyed', () => {
+    const onDismiss = vi.fn();
+    const handle = mount({ onDismiss });
+
+    let probeCalled = false;
+    const probe = () => {
+      probeCalled = true;
+    };
+    document.body.addEventListener('keydown', probe);
+
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(probeCalled).toBe(false);
+
     handle.destroy();
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-    expect(onDismiss).not.toHaveBeenCalled();
+    probeCalled = false;
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(probeCalled).toBe(true);
+
+    document.body.removeEventListener('keydown', probe);
   });
 });
