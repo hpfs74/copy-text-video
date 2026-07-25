@@ -3,7 +3,9 @@ import {
   computeContentRect,
   pickTarget,
   visibleArea,
+  classifyNoTarget,
 } from '../../src/content/video-target.js';
+import { ERROR } from '../../src/lib/messages.js';
 
 const viewport = { width: 1000, height: 800 };
 
@@ -175,5 +177,49 @@ describe('pickTarget', () => {
         rect: { left: 0, top: 0, width: 600, height: 400 } },
     ];
     expect(pickTarget(candidates, viewport).id).toBe('canvas-large');
+  });
+});
+
+describe('classifyNoTarget', () => {
+  const base = {
+    kind: 'video',
+    intrinsicWidth: 1920,
+    intrinsicHeight: 1080,
+    paused: true,
+    objectFit: 'contain',
+  };
+
+  it('reports no target when the page has no video or canvas at all', () => {
+    expect(classifyNoTarget([], viewport)).toBe(ERROR.NO_TARGET);
+  });
+
+  it('reports not-ready for a visible player that has not decoded a frame', () => {
+    // The shortcut pressed a beat too early. isEligible rejects this for the
+    // same reason it rejects an empty page, so without the distinction the
+    // user is told, wrongly, that the page has no video.
+    const candidates = [
+      { ...base, id: 'loading', intrinsicWidth: 0, intrinsicHeight: 0,
+        rect: { left: 0, top: 0, width: 600, height: 400 } },
+    ];
+    expect(classifyNoTarget(candidates, viewport)).toBe(ERROR.NOT_READY);
+  });
+
+  it('reports no target for an unloaded player that is not on screen', () => {
+    // A hidden or scrolled-away <video> is not what the user was aiming at,
+    // so "has not loaded a frame yet" would be misleading advice.
+    const candidates = [
+      { ...base, id: 'hidden', intrinsicWidth: 0, intrinsicHeight: 0,
+        rect: { left: 0, top: 0, width: 0, height: 0 } },
+      { ...base, id: 'offscreen', intrinsicWidth: 0, intrinsicHeight: 0,
+        rect: { left: 0, top: -900, width: 600, height: 400 } },
+    ];
+    expect(classifyNoTarget(candidates, viewport)).toBe(ERROR.NO_TARGET);
+  });
+
+  it('reports no target when the only candidates are loaded but off screen', () => {
+    const candidates = [
+      { ...base, id: 'offscreen', rect: { left: -900, top: 0, width: 600, height: 400 } },
+    ];
+    expect(classifyNoTarget(candidates, viewport)).toBe(ERROR.NO_TARGET);
   });
 });

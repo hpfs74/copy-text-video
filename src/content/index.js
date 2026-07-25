@@ -1,4 +1,9 @@
-import { collectCandidates, pickTarget, targetContentRect } from './video-target.js';
+import {
+  collectCandidates,
+  pickTarget,
+  targetContentRect,
+  classifyNoTarget,
+} from './video-target.js';
 import { captureFrame, classifyCaptureError } from './capture.js';
 import { mountOverlay } from './overlay/overlay.js';
 import { showToast } from './toast.js';
@@ -99,7 +104,7 @@ export async function runCapture(deps = {}) {
     // this and only one of them has the video. Toasting from the top frame
     // would tell the user "No video found" at the same moment the iframe puts
     // an overlay on screen.
-    if (isTopFrame) toast(ERROR_MESSAGE[ERROR.NO_TARGET], doc);
+    if (isTopFrame) toast(ERROR_MESSAGE[classifyNoTarget(candidates, viewport)], doc);
     return;
   }
 

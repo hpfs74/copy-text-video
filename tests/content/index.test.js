@@ -114,6 +114,17 @@ describe('runCapture', () => {
     expect(deps.mountOverlay).not.toHaveBeenCalled();
   });
 
+  it('tells the user the video has not loaded rather than that there is none', async () => {
+    const { deps } = makeDeps({
+      collectCandidates: () => [
+        { ...candidate, intrinsicWidth: 0, intrinsicHeight: 0, element: {} },
+      ],
+    });
+    await runCapture(deps);
+    expect(deps.showToast).toHaveBeenCalledWith(ERROR_MESSAGE[ERROR.NOT_READY], document);
+    expect(deps.mountOverlay).not.toHaveBeenCalled();
+  });
+
   it('stays silent in a subframe with no target', async () => {
     // Injection is allFrames: on a page embedding a YouTube player the top
     // frame has no video, and toasting from every frame that misses would

@@ -1,3 +1,5 @@
+import { ERROR } from '../lib/messages.js';
+
 /**
  * @typedef {{left:number, top:number, width:number, height:number}} Rect
  * @typedef {{width:number, height:number}} Viewport
@@ -106,6 +108,25 @@ export function pickTarget(candidates, viewport) {
       ? candidate
       : best;
   });
+}
+
+/**
+ * Why `pickTarget` came back empty, in the user's terms. A player that is on
+ * screen but has not decoded a frame yet is filtered out by `isEligible` for
+ * exactly the same reason a page with no video is, and telling someone who hit
+ * the shortcut a beat early that their page has no video is simply wrong.
+ *
+ * @returns {string} an ERROR code
+ */
+export function classifyNoTarget(candidates, viewport) {
+  const notReady = candidates.some(
+    (candidate) =>
+      candidate.rect.width > 0 &&
+      candidate.rect.height > 0 &&
+      visibleArea(candidate.rect, viewport) > 0 &&
+      (candidate.intrinsicWidth <= 0 || candidate.intrinsicHeight <= 0)
+  );
+  return notReady ? ERROR.NOT_READY : ERROR.NO_TARGET;
 }
 
 let nextId = 0;
