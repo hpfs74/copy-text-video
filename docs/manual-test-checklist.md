@@ -30,6 +30,23 @@ extension first.
 - [ ] Drag across two lines — copied text contains a newline between them.
 - [ ] Right-click a selection — Chrome's Copy appears and works.
 - [ ] **Copy all** — copies every recognised line in reading order.
+- [ ] **Spaces survive a drag-select** — wait for the text to appear, drag across a
+      whole line, press Cmd+C, paste into a plain-text editor (TextEdit in plain
+      mode, or the address bar). Pass = `The quick brown fox`, single spaces
+      between words. Fail = `Thequickbrownfox`. Judge this on the *pasted*
+      text: Copy all joins the words in JavaScript and would look correct even
+      if the rendered separators had collapsed, so it cannot substitute here.
+      (No automated test can cover this: jsdom does not collapse whitespace and
+      has no clipboard.)
+
+## Controls
+
+- [ ] **The buttons still work after the text appears** — wait for the scanning
+      shimmer to stop and the words to become selectable, *then* click Copy all
+      (the status pill reads "Copied") and Close (the overlay disappears).
+      Pass = both respond after OCR finished, not only during scanning. The
+      text layer covers the whole overlay and must not swallow their clicks.
+      (No automated test can cover this: jsdom does no hit testing.)
 
 ## Failure paths
 

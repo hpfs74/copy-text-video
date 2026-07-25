@@ -30,6 +30,12 @@
 
 .vts-line {
   position: static;
+  /* Every .vts-word is absolutely positioned, so the only in-flow content of a
+     line is the single space between words. Under `normal` that space is
+     collapsible whitespace with nothing to attach to and is dropped at render
+     time, and Chrome serialises a selection from rendered text — which would
+     put "Thequickbrownfox" on the clipboard. */
+  white-space: pre;
 }
 
 .vts-word {
@@ -48,6 +54,10 @@
 
 .vts-controls {
   position: absolute;
+  /* The text layer is a full-size sibling appended after the controls, so
+     without a stacking order it hit-tests over them and the buttons stop
+     responding the moment OCR succeeds. */
+  z-index: 1;
   right: 12px;
   bottom: 12px;
   display: flex;
@@ -74,6 +84,7 @@
 
 .vts-status {
   position: absolute;
+  z-index: 1;
   left: 12px;
   bottom: 12px;
   padding: 6px 12px;
