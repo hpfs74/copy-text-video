@@ -11,7 +11,8 @@
     "test:integration": "vitest run tests/integration",
     "lint": "eslint .",
     "check:permissions": "node scripts/check-permissions.mjs",
-    "check:audit": "npm audit --audit-level=high"
+    "check:audit": "npm audit --audit-level=high",
+    "icons": "node scripts/make-icons.mjs"
   },
   "keywords": [],
   "author": "",
