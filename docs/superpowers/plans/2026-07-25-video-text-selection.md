@@ -1549,10 +1549,31 @@ describe('layoutTextLayer', () => {
     expect(empty.lines).toEqual([]);
   });
 
-  it('survives a zero-width content rect without producing NaN', () => {
+  it('produces zero-sized words when content rect is collapsed', () => {
     const layout = layoutTextLayer(ocr, { left: 0, top: 0, width: 0, height: 0 });
+    expect(layout.lines[0].words[0]).toEqual({
+      text: 'The',
+      left: 0,
+      top: 0,
+      width: 0,
+      height: 0,
+      fontSize: 0,
+    });
+  });
+
+  it('survives zero-width OCR result without producing Infinity or NaN', () => {
+    // Guard protects against ocrResult.width === 0, which would cause division by zero.
+    // With contentRect.width > 0, the numerator is nonzero while denominator is zero,
+    // yielding Infinity. Guard ensures scale = 0 instead, making all coordinates finite.
+    const layout = layoutTextLayer(
+      { width: 0, height: 500, lines: ocr.lines },
+      { left: 0, top: 0, width: 1000, height: 500 }
+    );
     for (const word of layout.lines[0].words) {
       expect(Number.isFinite(word.left)).toBe(true);
+      expect(Number.isFinite(word.top)).toBe(true);
+      expect(Number.isFinite(word.width)).toBe(true);
+      expect(Number.isFinite(word.height)).toBe(true);
       expect(Number.isFinite(word.fontSize)).toBe(true);
     }
   });
@@ -1627,7 +1648,7 @@ export function layoutToText(layout) {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run tests/content/overlay/text-layer.test.js`
-Expected: PASS (9 tests)
+Expected: PASS (10 tests)
 
 - [ ] **Step 5: Commit**
 
