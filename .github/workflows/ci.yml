@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# A new push to a PR makes the in-flight run obsolete; don't burn minutes on it.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  integration:
+    name: OCR integration test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+
+      # The Tesseract WASM core and the ~2MB English model are vendored by
+      # scripts/vendor.mjs, which downloads the language data. Cache them so
+      # every run isn't re-fetching the same bytes; the key covers both the
+      # pinned tesseract version and the vendoring script itself.
+      - name: Cache vendored Tesseract runtime
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: tesseract-${{ runner.os }}-${{ hashFiles('package-lock.json', 'scripts/vendor.mjs') }}
+
+      - name: Vendor Tesseract runtime
+        run: npm run vendor
+
+      # This is the only test that exercises the real OCR engine end to end.
+      # Everything else runs against fixtures, so if this breaks, the extension
+      # is broken in the one way the rest of the suite cannot see.
+      - name: Run OCR integration test
+        run: npm run test:integration
+
+  security:
+    name: Security checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+
+      - name: Dependency audit
+        run: npm run check:audit
+
+      # Guards the extension's core privacy claim: it can only ever see the tab
+      # you invoke it on, and only when you press the shortcut.
+      - name: Extension permission guard
+        run: npm run check:permissions
+
+      - name: Cache vendored Tesseract runtime
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: tesseract-${{ runner.os }}-${{ hashFiles('package-lock.json', 'scripts/vendor.mjs') }}
+
+      - name: Verify the build produces a loadable extension
+        run: |
+          npm run build
+          test -f dist/manifest.json
+          test -f dist/background/service-worker.js
+          test -f dist/content/index.js
+          test -f dist/offscreen/offscreen.html
+          test -f dist/offscreen/offscreen.js
+          test -f dist/vendor/tesseract/worker.min.js
+          test -f dist/vendor/tesseract/lang/eng.traineddata.gz
+          ls dist/vendor/tesseract/core/*.wasm > /dev/null
+          echo "dist/ is complete"
+
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          # This extension ships vendored third-party code to users' browsers,
+          # so copyleft licences are a deliberate decision, not a default.
+          deny-licenses: GPL-3.0, AGPL-3.0

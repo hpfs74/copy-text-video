@@ -39,7 +39,39 @@ overlay. English only.
 ## Development
 
 ```bash
-npm test              # unit tests
-npm run test:integration  # golden-image OCR test (slow)
-npm run build         # bundle to dist/
+npm test                  # unit tests
+npm run test:integration  # golden-image test against the real OCR engine
+npm run lint              # eslint
+npm run check:permissions # fail if the manifest gains permissions
+npm run check:audit       # fail on high/critical dependency advisories
+npm run build             # bundle to dist/
+npm run package           # build, then zip to release/ for the Web Store
 ```
+
+## CI
+
+Every pull request runs lint, the unit suite, the real-OCR integration test, a
+dependency audit, an extension permission guard, a dependency review of anything
+newly added, and CodeQL analysis. The build is also exercised end to end to prove
+`dist/` is complete and loadable.
+
+The permission guard is the one worth knowing about: it fails the build if
+`manifest.json` ever gains a permission beyond `activeTab`, `scripting` and
+`offscreen`, adds any host permission, or declares a static content script. Those
+three properties are what limit the extension to seeing only the tab you invoke it
+on, at the moment you invoke it, and they are each one line away from being lost.
+
+## Releases
+
+Merging to `main` derives a version from the merged commits — `feat:` gives a minor
+bump, `fix:` or `perf:` a patch, `!` or `BREAKING CHANGE` a major, and anything else
+releases nothing. The workflow writes that version into `manifest.json` and
+`package.json`, tags it, and publishes the packaged zip as a GitHub Release.
+
+`manifest.json` is the source of truth for the version, since it is the number
+Chrome shows users.
+
+Releases are built and tested automatically, but **no automated browser test exists
+for this extension** — layout, painting, text selection, clipboard behaviour and DRM
+handling are all invisible to CI. See `docs/manual-test-checklist.md` for what still
+needs a human before a release is trustworthy.

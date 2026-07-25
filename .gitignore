@@ -6,3 +6,4 @@ vendor/
 # when no cachePath is configured (both the integration test and any
 # manual node run of the OCR path trigger this).
 eng.traineddata
+release/
