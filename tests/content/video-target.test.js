@@ -42,14 +42,13 @@ describe('computeContentRect', () => {
 
   it('overflows the element for object-fit: cover', () => {
     // Cover scales to the larger factor, so content bleeds past the box and
-    // is centred on it. Negative offsets are correct and expected here.
+    // is centred on it. A 16:9 video in a 4:3 box overflows horizontally.
     const rect = { left: 0, top: 0, width: 640, height: 480 };
-    expect(computeContentRect(rect, 1920, 1080, 'cover')).toEqual({
-      left: 0,
-      top: -120,
-      width: 640,
-      height: 720,
-    });
+    const result = computeContentRect(rect, 1920, 1080, 'cover');
+    expect(result.width).toBeCloseTo(853.333, 2);
+    expect(result.height).toBeCloseTo(480, 2);
+    expect(result.left).toBeCloseTo(-106.667, 2);
+    expect(result.top).toBeCloseTo(0, 2);
   });
 
   it('stretches to the element for object-fit: fill', () => {
