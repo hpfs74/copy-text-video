@@ -81,7 +81,16 @@ export async function runCapture(deps = {}) {
     viewport = { width: window.innerWidth, height: window.innerHeight },
     schedule = requestAnimationFrame,
     isTopFrame = typeof window === 'undefined' || window.top === window,
+    globals = typeof window === 'undefined' ? {} : window,
   } = deps;
+
+  // A capture that has finished still owns an overlay, and the running guard
+  // below has already been cleared by then. Take the previous one down — with
+  // its tracking listeners and its resume — instead of stacking on top of it,
+  // where Close would only ever dismiss the newest and leave a stale frozen
+  // frame nailed over the video.
+  globals.__vtsDismiss?.();
+  globals.__vtsDismiss = null;
 
   const candidates = collect(doc);
   const target = pickTarget(candidates, viewport);
@@ -121,11 +130,20 @@ export async function runCapture(deps = {}) {
     contentRect,
     doc,
     onDismiss: () => {
+      globals.__vtsDismiss = null;
       stopTracking();
       resume();
     },
   });
   stopTracking = trackTarget(target, overlay, { doc, schedule });
+
+  // How a later capture — or anything else — takes this overlay down cleanly.
+  globals.__vtsDismiss = () => {
+    globals.__vtsDismiss = null;
+    overlay.destroy();
+    stopTracking();
+    resume();
+  };
 
   let response;
   try {

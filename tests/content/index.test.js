@@ -46,6 +46,9 @@ function makeDeps(overrides = {}) {
       showToast: vi.fn(),
       viewport: { width: 1000, height: 800 },
       doc: document,
+      // Per-call by default so one test's live overlay cannot reach into the
+      // next; pass a shared object to exercise the second-capture path.
+      globals: {},
       ...overrides,
     },
   };
@@ -160,6 +163,44 @@ describe('runCapture', () => {
     await runCapture(deps);
 
     deps.mountOverlay.mock.calls[0][0].onDismiss();
+    expect(element.play).toHaveBeenCalledTimes(1);
+  });
+
+  it('replaces the live overlay instead of stacking a second one on it', async () => {
+    // The running guard is cleared as soon as OCR resolves, but the overlay
+    // outlives it. Without this, a second shortcut press mounts a second
+    // overlay over the first and Close only ever dismisses the newest, leaving
+    // a stale frozen frame nailed over the video.
+    const globals = {};
+    const firstElement = { pause: vi.fn(), play: vi.fn() };
+    const first = makeDeps({
+      globals,
+      collectCandidates: () => [{ ...candidate, element: firstElement }],
+    });
+    await runCapture(first.deps);
+
+    const second = makeDeps({ globals });
+    await runCapture(second.deps);
+
+    expect(first.handle.destroy).toHaveBeenCalledTimes(1);
+    expect(firstElement.play).toHaveBeenCalledTimes(1);
+    expect(second.handle.destroy).not.toHaveBeenCalled();
+    expect(second.deps.mountOverlay).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not touch an overlay the user has already dismissed', async () => {
+    const globals = {};
+    const element = { pause: vi.fn(), play: vi.fn() };
+    const { handle, deps } = makeDeps({
+      globals,
+      collectCandidates: () => [{ ...candidate, element }],
+    });
+    await runCapture(deps);
+
+    deps.mountOverlay.mock.calls[0][0].onDismiss();
+    await runCapture(makeDeps({ globals }).deps);
+
+    expect(handle.destroy).not.toHaveBeenCalled();
     expect(element.play).toHaveBeenCalledTimes(1);
   });
 
