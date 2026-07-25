@@ -15,6 +15,51 @@ async function requestOcr(frame) {
 }
 
 /**
+ * Keep the overlay glued to the element while the page scrolls or reflows.
+ * Measurement and scheduling are injected so this is testable without layout.
+ *
+ * @returns {() => void} stop
+ */
+export function trackTarget(target, overlay, options = {}) {
+  const {
+    doc = document,
+    schedule = requestAnimationFrame,
+    measure = () => {
+      const rect = target.element.getBoundingClientRect();
+      return computeContentRect(
+        { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+        target.intrinsicWidth,
+        target.intrinsicHeight,
+        target.objectFit
+      );
+    },
+  } = options;
+
+  let stopped = false;
+  let queued = false;
+
+  const update = () => {
+    if (stopped || queued) return;
+    queued = true;
+    schedule(() => {
+      queued = false;
+      if (!stopped) overlay.reposition(measure());
+    });
+  };
+
+  window.addEventListener('scroll', update, true);
+  window.addEventListener('resize', update);
+  doc.addEventListener('fullscreenchange', update);
+
+  return () => {
+    stopped = true;
+    window.removeEventListener('scroll', update, true);
+    window.removeEventListener('resize', update);
+    doc.removeEventListener('fullscreenchange', update);
+  };
+}
+
+/**
  * The whole flow, with every collaborator injectable so it can be driven under
  * jsdom without chrome.* or a real <video>.
  */
@@ -61,7 +106,17 @@ export async function runCapture(deps = {}) {
 
   // Mount before OCR: the user should see the frame freeze instantly, with the
   // scanning shimmer explaining the couple of seconds that follow.
-  const overlay = mount({ frame, contentRect, doc, onDismiss: resume });
+  let stopTracking = () => {};
+  const overlay = mount({
+    frame,
+    contentRect,
+    doc,
+    onDismiss: () => {
+      stopTracking();
+      resume();
+    },
+  });
+  stopTracking = trackTarget(target, overlay, { doc });
 
   let response;
   try {
