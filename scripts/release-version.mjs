@@ -7,12 +7,16 @@
  *   ! or BREAKING CHANGE -> major
  *   anything else    -> no release
  *
- * manifest.json is the source of truth for the current version, because that is
- * the number Chrome actually shows users; package.json is kept in step with it.
+ * **Git tags are the source of truth for the released version.** The version in
+ * manifest.json is only a development placeholder — the release pipeline writes
+ * the computed version into the working tree so it reaches the built artifact,
+ * but never commits it back. That is deliberate: main is governed by a ruleset
+ * requiring every change to arrive through a pull request with verified
+ * signatures, which a bot pushing a version bump straight to main cannot satisfy.
  *
  * Usage:
  *   node scripts/release-version.mjs           # report only
- *   node scripts/release-version.mjs --apply   # write the new version to both files
+ *   node scripts/release-version.mjs --apply   # write the version into the working tree
  *
  * Writes `bump`, `version` and `previous` to $GITHUB_OUTPUT when running in Actions.
  */
@@ -107,15 +111,26 @@ function emit(outputs) {
   }
 }
 
-const manifest = JSON.parse(readFileSync('manifest.json', 'utf8'));
-const current = manifest.version;
 const tag = lastReleaseTag();
+
+// The last tag is authoritative. manifest.json is consulted only to seed the very
+// first release, before any tag exists.
+const manifest = JSON.parse(readFileSync('manifest.json', 'utf8'));
+const current = tag ? tag.replace(/^v/, '') : manifest.version;
+
+if (!/^\d+\.\d+\.\d+$/.test(current)) {
+  console.error(
+    `Cannot parse a base version from ${tag ? `tag ${tag}` : 'manifest.json'}: ${current}`
+  );
+  process.exit(1);
+}
+
 const commits = commitsSince(tag);
 const bump = classify(commits);
 
 console.log(`Last release tag: ${tag ?? '(none)'}`);
 console.log(`Commits considered: ${commits.length}`);
-console.log(`Current version: ${current}`);
+console.log(`Base version: ${current} (from ${tag ? 'tag' : 'manifest.json'})`);
 
 if (!bump) {
   console.log('No feat:, fix:, perf: or breaking commits — nothing to release.');
@@ -136,9 +151,10 @@ if (!/^\d+\.\d+\.\d+$/.test(version) || version.split('.').some((n) => Number(n)
 console.log(`Bump: ${bump} -> ${version}`);
 
 if (apply) {
+  // Working tree only — these edits feed the build and are never committed.
   writeJsonVersion('manifest.json', version);
   writeJsonVersion('package.json', version);
-  console.log('Wrote version to manifest.json and package.json.');
+  console.log('Wrote version into the working tree (not committed) for the build.');
 }
 
 emit({ bump, version, previous: current });

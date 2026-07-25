@@ -16,9 +16,9 @@ jobs:
   release:
     name: Version, package and publish
     runs-on: ubuntu-latest
-    # The job pushes its own version-bump commit back to main. GitHub already
-    # declines to trigger workflows from a GITHUB_TOKEN push, but this makes the
-    # loop impossible rather than merely unlikely.
+    # The job pushes only a tag, never a commit to main, so it cannot retrigger
+    # itself. This guard is kept as a backstop in case a version-bump commit is
+    # ever reintroduced.
     if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
 
     steps:
@@ -70,17 +70,21 @@ jobs:
         id: package
         run: npm run package
 
-      - name: Commit version bump and tag
+      # Tag only — nothing is pushed back to main.
+      #
+      # main is governed by a ruleset requiring every change to arrive through a
+      # pull request with verified signatures. A bot pushing a version-bump commit
+      # directly satisfies neither, so the version lives in the tag and in the
+      # packaged artifact. The manifest.json edit made above stays in the working
+      # tree, reaches the build, and is then discarded with the runner.
+      - name: Tag the release
         if: steps.version.outputs.bump != 'none'
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add manifest.json package.json
-          git commit -m "chore(release): v${VERSION} [skip ci]"
           git tag -a "v${VERSION}" -m "v${VERSION}"
-          git push origin HEAD:main
           git push origin "v${VERSION}"
 
       # Notes are built here rather than with --generate-notes so the first
