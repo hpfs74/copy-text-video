@@ -16,6 +16,9 @@ jobs:
   release:
     name: Version, package and publish
     runs-on: ubuntu-latest
+    outputs:
+      bump: ${{ steps.version.outputs.bump }}
+      version: ${{ steps.version.outputs.version }}
     # The job pushes only a tag, never a commit to main, so it cannot retrigger
     # itself. This guard is kept as a backstop in case a version-bump commit is
     # ever reintroduced.
@@ -143,3 +146,51 @@ jobs:
           else
             echo "Released **v${{ steps.version.outputs.version }}** (${{ steps.version.outputs.bump }} bump from ${{ steps.version.outputs.previous }})." >> $GITHUB_STEP_SUMMARY
           fi
+
+  # Auto-publish to the Chrome Web Store on every release.
+  #
+  # A separate job rather than extra steps on `release`, for two reasons: a store
+  # outage or an expired token can be re-run from the Actions tab without cutting
+  # another release, and a publishing failure cannot leave the GitHub release
+  # half-created.
+  #
+  # Publishing submits for Google's review and, once approved, pushes to every
+  # existing user. Nothing reaches the store unless `release` fully succeeded,
+  # which means lint, the unit suite, the real-OCR integration test and the
+  # permission guard all passed first.
+  publish-store:
+    name: Publish to the Chrome Web Store
+    needs: release
+    if: needs.release.outputs.bump != 'none'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # Take the exact artifact that was attached to the release, rather than
+      # rebuilding it — publishing something that was never released would make
+      # the tag a lie.
+      - name: Download the released package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          gh release download "v${VERSION}" \
+            --pattern "video-text-select-${VERSION}.zip" \
+            --dir release
+          ls -l release
+
+      - name: Upload and publish
+        env:
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: node scripts/publish-webstore.mjs "release/video-text-select-${VERSION}.zip"

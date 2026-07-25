@@ -205,6 +205,60 @@ Load `dist/` via `chrome://extensions` → Load unpacked, then capture at exactl
 
 ---
 
+## Automated publishing
+
+Every release now uploads and publishes to the store automatically, in the `publish-store`
+job of `.github/workflows/release.yml`. It runs only after `release` fully succeeds, so
+nothing reaches the store that hasn't passed lint, the unit suite, the real-OCR
+integration test and the permission guard.
+
+**This publishes publicly to every existing user, after Google's review.** There is no
+undo other than publishing again. The job is separate and re-runnable, so an expired token
+or a store outage can be retried from the Actions tab without cutting a new release.
+
+### One-time setup, which cannot be automated
+
+**1. Submit the listing by hand first.** The API uploads and publishes *packages* only. It
+cannot create a listing or edit any of the metadata above. The description, screenshots,
+category and privacy answers must already exist in the console before the first automated
+publish will work.
+
+**2. Create OAuth credentials.**
+
+1. Create a Google Cloud project and enable the **Chrome Web Store API**.
+2. Create an OAuth client of type **Desktop app** → gives the client id and secret.
+3. **Set the OAuth consent screen to "In production", not "Testing".** This is the step
+   people skip. Refresh tokens issued while the consent screen is in Testing mode expire
+   after **7 days**, so the pipeline works, you stop thinking about it, and it starts
+   failing a week later for no visible reason.
+4. Complete the OAuth flow once to obtain a refresh token, requesting the scope
+   `https://www.googleapis.com/auth/chromewebstore`.
+
+**3. Add repository secrets** (Settings → Secrets and variables → Actions):
+
+| Secret | |
+|---|---|
+| `CWS_CLIENT_ID` | OAuth client id |
+| `CWS_CLIENT_SECRET` | OAuth client secret |
+| `CWS_REFRESH_TOKEN` | OAuth refresh token |
+
+Optionally set the repository **variable** `CWS_EXTENSION_ID` to override the default item
+id (`kkeldliphfpnofpdfkgdaoamnkjgiogc`). Extension ids are public, so this is a variable
+rather than a secret.
+
+Until the secrets exist, the job fails with instructions rather than failing obscurely.
+
+### Running it by hand
+
+```bash
+CWS_CLIENT_ID=… CWS_CLIENT_SECRET=… CWS_REFRESH_TOKEN=… \
+  node scripts/publish-webstore.mjs release/video-text-select-0.3.0.zip
+```
+
+`CWS_DRY_RUN=true` uploads the package as a draft without publishing it — useful for
+confirming the credentials work before letting anything reach users.
+`CWS_PUBLISH_TARGET=trustedTesters` publishes to your tester list instead of the public.
+
 ## Before you submit
 
 - [ ] Upload a zip built **after** icons were added — not `v0.2.0`
